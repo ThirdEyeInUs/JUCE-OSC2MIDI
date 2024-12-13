@@ -1,9 +1,13 @@
 #include "MainComponent.h"
+#include "CCControlWindow.h"
+#include "FileBrowserWindow.h"
+#include "MixerControlWindow.h"
 #include "CustomLookAndFeel.h"
 
 //==============================================================================
 MainComponent::MainComponent()
-    : midiKeyboard(midiKeyboardState, juce::MidiKeyboardComponent::horizontalKeyboard)
+    : midiKeyboard(midiKeyboardState, juce::MidiKeyboardComponent::horizontalKeyboard),
+    customLookAndFeel()
 {
     setSize(1200, 700); // Larger default size
 
@@ -195,7 +199,7 @@ MainComponent::MainComponent()
     ccValueSlider.setValue(0.0);
     ccValueSlider.onValueChange = [this]()
         {
-            int ccVal = (int)ccValueSlider.getValue();
+            int ccVal = static_cast<int>(ccValueSlider.getValue());
             sendCCMessage(currentCCChannel, currentCCNumber, ccVal);
         };
 
@@ -227,7 +231,7 @@ MainComponent::MainComponent()
     channelPressureSlider.setValue(0.0);
     channelPressureSlider.onValueChange = [this]()
         {
-            int pressureVal = (int)channelPressureSlider.getValue();
+            int pressureVal = static_cast<int>(channelPressureSlider.getValue());
             sendAftertouchMessage(currentOSCChannel, pressureVal);
         };
 
@@ -293,7 +297,6 @@ MainComponent::MainComponent()
         };
 }
 
-//------------------------------------------------------------------------------
 MainComponent::~MainComponent()
 {
     // Clean up look and feel
@@ -546,6 +549,8 @@ void MainComponent::sendOSCMessage(int midiNote, bool noteOn)
     midiNote = juce::jlimit(0, 127, midiNote);
     juce::String address = "/ch" + juce::String(currentOSCChannel) + (noteOn ? "note" : "noteoff");
     oscSender.send(juce::OSCMessage(address, midiNote));
+
+    juce::Logger::writeToLog("OSC Sent: " + address + " " + juce::String(midiNote));
 }
 
 //------------------------------------------------------------------------------
@@ -556,8 +561,7 @@ void MainComponent::sendVelocityMessage(int midiNote, float velocity)
 
     midiNote = juce::jlimit(0, 127, midiNote);
     juce::String address = "/ch" + juce::String(currentOSCChannel) + "nvalue";
-    juce::OSCMessage message(address, midiNote, velocity);
-    oscSender.send(message);
+    oscSender.send(juce::OSCMessage(address, midiNote, velocity));
 
     logMessage("Sent OSC velocity for note " + juce::String(midiNote) + " = " + juce::String(velocity));
 }
@@ -581,7 +585,7 @@ void MainComponent::sendCCMessage(int channel, int ccNumber, int ccValue)
 
         oscSender.send(juce::OSCMessage(ccAddr, ccNumber));
 
-        float normalizedVal = ccValue / 127.0f;
+        float normalizedVal = static_cast<float>(ccValue) / 127.0f;
         oscSender.send(juce::OSCMessage(ccValueAddr, normalizedVal));
 
         logMessage("Sent OSC CC channel " + juce::String(channel) + ": CC#" + juce::String(ccNumber)
@@ -596,11 +600,11 @@ void MainComponent::sendPitchBendMessage(int channel, float pitchValue)
     pitchValue = juce::jlimit(0.0f, 1.0f, pitchValue);
 
     // Convert normalized [0..1] → MIDI pitch bend range [0..16383]
-    int midiPB = (int)(pitchValue * 16383.0f + 0.5f);
+    int midiPB = static_cast<int>(pitchValue * 16383.0f + 0.5f);
     midiPB = juce::jlimit(0, 16383, midiPB);
 
     // Convert to float range [-8400..+8400] for OSC
-    float oscPitchBend = ((midiPB / 16383.0f) * 2.0f - 1.0f) * 8400.0f;
+    float oscPitchBend = ((static_cast<float>(midiPB) / 16383.0f) * 2.0f - 1.0f) * 8400.0f;
 
     // Send MIDI pitch bend
     if (currentMidiOutput)
@@ -672,7 +676,7 @@ void MainComponent::handleNoteOn(juce::MidiKeyboardState*, int /*midiChannel*/, 
 }
 
 //------------------------------------------------------------------------------
-void MainComponent::handleNoteOff(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float velocity)
+void MainComponent::handleNoteOff(juce::MidiKeyboardState*, int /*midiChannel*/, int midiNoteNumber, float /*velocity*/)
 {
     {
         juce::ScopedLock lock(queueLock);
@@ -680,7 +684,7 @@ void MainComponent::handleNoteOff(juce::MidiKeyboardState*, int /*midiChannel*/,
         event.type = MidiEvent::Type::NoteOff;
         event.channel = currentOSCChannel;
         event.parameter = midiNoteNumber;
-        event.value = velocity;
+        event.value = 0.0f;
         midiEventsQueue.add(event);
     }
     triggerAsyncUpdate();
@@ -733,7 +737,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
             event.type = MidiEvent::Type::ControlChange;
             event.channel = channel;
             event.parameter = ccNumber;
-            event.value = (float)ccValue;
+            event.value = static_cast<float>(ccValue);
             midiEventsQueue.add(event);
         }
         triggerAsyncUpdate();
@@ -745,7 +749,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
         logMessage("Received Pitch Bend on channel " + juce::String(channel)
             + ": " + juce::String(pitchValue));
 
-        float normalizedPitch = pitchValue / 16383.0f;
+        float normalizedPitch = static_cast<float>(pitchValue) / 16383.0f;
         {
             juce::ScopedLock lock(queueLock);
             MidiEvent event;
@@ -770,7 +774,7 @@ void MainComponent::handleIncomingMidiMessage(juce::MidiInput*, const juce::Midi
             event.type = MidiEvent::Type::Aftertouch;
             event.channel = channel;
             event.parameter = 0;
-            event.value = (float)pressureValue;
+            event.value = static_cast<float>(pressureValue);
             midiEventsQueue.add(event);
         }
         triggerAsyncUpdate();
@@ -852,7 +856,7 @@ void MainComponent::handleAsyncUpdate()
             case MidiEvent::Type::ControlChange:
             {
                 // Parameter is CC number, value is 0..1, scale to 0..127
-                int intValue = (int)(value * 127.0f);
+                int intValue = static_cast<int>(value * 127.0f);
                 sendCCMessage(currentCCChannel, param, intValue);
             }
             break;
@@ -865,7 +869,7 @@ void MainComponent::handleAsyncUpdate()
 
             case MidiEvent::Type::Aftertouch:
             {
-                int pressureVal = (int)value;
+                int pressureVal = static_cast<int>(value);
                 sendAftertouchMessage(channel, pressureVal);
             }
             break;
@@ -879,7 +883,7 @@ void MainComponent::handleAsyncUpdate()
         {
             int channel = juce::jlimit(1, 16, event.channel);
             int param = juce::jlimit(0, 127, event.parameter);
-            float value = juce::jlimit(0.0f, 127.0f, event.value);
+            float value = juce::jlimit(0.0f, 127.0f, event.value); // CC was 0..127
 
             switch (event.type)
             {
@@ -898,7 +902,7 @@ void MainComponent::handleAsyncUpdate()
 
             case MidiEvent::Type::ControlChange:
             {
-                int intValue = (int)(value); // CC was 0..127
+                int intValue = static_cast<int>(value); // CC was 0..127
                 sendCCMessage(currentCCChannel, param, intValue);
             }
             break;
@@ -908,7 +912,7 @@ void MainComponent::handleAsyncUpdate()
                 break;
 
             case MidiEvent::Type::Aftertouch:
-                sendAftertouchMessage(channel, (int)value);
+                sendAftertouchMessage(channel, static_cast<int>(value));
                 break;
             }
         }
@@ -971,7 +975,7 @@ void MainComponent::updateArpState()
 {
     if (arpEnabled)
     {
-        startTimerHz((int)arpRateHz);
+        startTimerHz(static_cast<int>(arpRateHz));
         currentArpIndex = 0;
         goingUp = true;
         if (lastArpNote >= 0)
@@ -1004,7 +1008,7 @@ void MainComponent::advanceArp()
         if (lastArpNote >= 0 && lastArpNote == singleNote)
             sendArpNoteOff(lastArpNote);
 
-        sendArpNoteOn(singleNote);
+        sendArpNoteOn(singleNote, 1.0f); // Assuming full velocity
         lastArpNote = singleNote;
         return;
     }
@@ -1039,7 +1043,7 @@ void MainComponent::advanceArp()
 
     int rawNote = heldNotes[currentArpIndex];
     int noteToPlay = juce::jlimit(0, 127, rawNote);
-    sendArpNoteOn(noteToPlay);
+    sendArpNoteOn(noteToPlay, 1.0f); // Assuming full velocity
     lastArpNote = noteToPlay;
 }
 
@@ -1076,7 +1080,9 @@ void MainComponent::handleMenuItemClick(int menuItemId)
             ccControlWindow = std::make_unique<CCControlWindow>(
                 [this](int ccNumber, float value)
                 {
-                    logMessage("CC#" + juce::String(ccNumber) + " Value: " + juce::String(value));
+                    int ccValue = static_cast<int>(juce::jlimit(0.0f, 127.0f, value));
+                    sendCCMessage(currentCCChannel, ccNumber, ccValue);
+                    logMessage("CC#" + juce::String(ccNumber) + " Value: " + juce::String(ccValue));
                 });
             ccControlWindow->setAlwaysOnTop(true);
         }
@@ -1130,3 +1136,4 @@ void MainComponent::handleMenuItemClick(int menuItemId)
     resized();
     logMessage("Side menu closed.");
 }
+
