@@ -13,6 +13,7 @@
 class LogListModel : public juce::ListBoxModel
 {
 public:
+    void sendCCMessage(int channel, int ccNumber, int ccValue);
     void addLog(const juce::String& log)
     {
         logs.add(log);
