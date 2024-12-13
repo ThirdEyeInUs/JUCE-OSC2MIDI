@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+// Callback type definition remains the same
 using CCValueChangedCallback = std::function<void(int ccNumber, float value)>;
 
 class CCControlWindow : public juce::DocumentWindow
@@ -42,23 +43,9 @@ private:
     {
     public:
         ContentComponent(CCValueChangedCallback callback)
-            : ccValueChangedCallback(callback), currentOSCChannel(1)
+            : ccValueChangedCallback(callback)
         {
-            // Label for OSC Channel
-            oscChLabel.setText("OSC CH:", juce::dontSendNotification);
-            oscChLabel.setJustificationType(juce::Justification::centredRight);
-            addAndMakeVisible(oscChLabel);
-
-            // OSC Channel Selector
-            channelSelector.addItemList({ "1", "2", "3", "4", "5", "6", "7", "8",
-                                          "9", "10", "11", "12", "13", "14", "15", "16" }, 1);
-            channelSelector.setSelectedId(1);
-            channelSelector.onChange = [this]()
-                {
-                    currentOSCChannel = channelSelector.getSelectedId();
-                    juce::Logger::writeToLog("Selected OSC Channel: " + juce::String(currentOSCChannel));
-                };
-            addAndMakeVisible(channelSelector);
+            // Remove channel selector from here if synchronizing channels
 
             // Reset Size Button
             resetSizeButton.setButtonText("Reset Size");
@@ -97,12 +84,12 @@ private:
                 dial->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
 
                 dial->setName("CC" + juce::String(ccNumber));
-                dial->onValueChange = [this, i, dial, ccNumber]()
+                dial->onValueChange = [this, dial, ccNumber]()
                     {
-                        float value = (float)dial->getValue();
+                        float value = static_cast<float>(dial->getValue());
                         if (ccValueChangedCallback)
                             ccValueChangedCallback(ccNumber, value);
-                        sendCCMessage(currentOSCChannel, ccNumber, value);
+                        // Removed sendCCMessage call
                     };
 
                 if (ccNumber >= 13)
@@ -134,12 +121,12 @@ private:
                 slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 20);
 
                 slider->setName("CC" + juce::String(ccNumber));
-                slider->onValueChange = [this, i, slider, ccNumber]()
+                slider->onValueChange = [this, slider, ccNumber]()
                     {
-                        float value = (float)slider->getValue();
+                        float value = static_cast<float>(slider->getValue());
                         if (ccValueChangedCallback)
                             ccValueChangedCallback(ccNumber, value);
-                        sendCCMessage(currentOSCChannel, ccNumber, value);
+                        // Removed sendCCMessage call
                     };
 
                 if (ccNumber <= 30)
@@ -163,17 +150,16 @@ private:
         {
             auto area = getLocalBounds().reduced(20);
 
-            // Top row: OSC Channel selector and buttons
+            // Top row: buttons
             auto topRow = area.removeFromTop(40);
-            oscChLabel.setBounds(topRow.removeFromLeft(60));
-            channelSelector.setBounds(topRow.removeFromLeft(100));
             resetSizeButton.setBounds(topRow.removeFromRight(100));
             resetCCButton.setBounds(topRow.removeFromRight(100));
+            // Removed channel selector bounds
 
             // Dials Area (CC1 - CC24)
             int totalDialRows = 4;
             int totalDialColumns = 6;
-            auto dialsArea = area.removeFromTop(getHeight() * 0.6);
+            auto dialsArea = area.removeFromTop(static_cast<int>(getHeight() * 0.6));
             int dialWidth = dialsArea.getWidth() / totalDialColumns;
             int dialHeight = dialsArea.getHeight() / totalDialRows;
 
@@ -211,8 +197,8 @@ private:
         static constexpr int defaultWidth = 1200;
         static constexpr int defaultHeight = 800;
 
-        juce::Label oscChLabel;
-        juce::ComboBox channelSelector;
+        // Removed channel selector UI elements
+
         juce::TextButton resetSizeButton;
         juce::TextButton resetCCButton;
 
@@ -222,18 +208,7 @@ private:
         juce::OwnedArray<juce::Slider> sliders;
         juce::OwnedArray<juce::Label> sliderLabels;
 
-        int currentOSCChannel;
         CCValueChangedCallback ccValueChangedCallback;
-
-        void sendCCMessage(int channel, int ccNumber, float value)
-        {
-            juce::String ccAddress = "/ch" + juce::String(channel) + "cc";
-            juce::String ccValueAddress = "/ch" + juce::String(channel) + "ccvalue";
-
-            float normalizedValue = value / 127.0f;
-            juce::Logger::writeToLog("OSC Sent: " + ccAddress + " " + juce::String(ccNumber));
-            juce::Logger::writeToLog("OSC Sent: " + ccValueAddress + " " + juce::String(normalizedValue));
-        }
     };
 
     ContentComponent contentComponent;
